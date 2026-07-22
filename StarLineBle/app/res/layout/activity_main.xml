@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/ctrl_bg">
+
+    <!-- Заголовок (titlebar): имя устройства + индикатор состояния BT -->
+    <RelativeLayout
+        android:id="@+id/titleBar"
+        android:layout_width="match_parent"
+        android:layout_height="45dp"
+        android:layout_alignParentTop="true"
+        android:background="@android:color/transparent"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <!-- Температура (левый верхний угол) -->
+        <TextView
+            android:id="@+id/tvTemp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:text="--°C"
+            android:textColor="#a2edfa"
+            android:textSize="25sp"
+            android:fontFamily="@font/ds_digi"
+            android:layout_marginStart="16dp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <TextView
+                android:id="@+id/tvDevName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textColor="@color/text_white"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvConn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/disconnected"
+                android:textColor="@color/text_gray"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- Индикатор уровня сигнала BLE (бары) -->
+        <LinearLayout
+            android:id="@+id/signalBars"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="bottom"
+            android:layout_toStartOf="@id/ivCarState"
+            android:layout_centerVertical="true"
+            android:layout_marginEnd="8dp">
+
+            <ImageView android:id="@+id/bar1" android:layout_width="4dp" android:layout_height="8dp" android:layout_marginEnd="2dp" android:src="@drawable/bar" />
+            <ImageView android:id="@+id/bar2" android:layout_width="4dp" android:layout_height="12dp" android:layout_marginEnd="2dp" android:src="@drawable/bar" />
+            <ImageView android:id="@+id/bar3" android:layout_width="4dp" android:layout_height="16dp" android:layout_marginEnd="2dp" android:src="@drawable/bar" />
+            <ImageView android:id="@+id/bar4" android:layout_width="4dp" android:layout_height="20dp" android:src="@drawable/bar" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/ivCarState"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:src="@drawable/car_state_bt_off" />
+    </RelativeLayout>
+
+    <!-- Кнопка режима Valet (под строкой BLE, верхний правый угол).
+         При активном режиме вокруг неё бежит красная "змейка" (valet_border). -->
+    <ImageView
+        android:id="@+id/ivValet"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_below="@id/titleBar"
+        android:layout_alignParentEnd="true"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="16dp"
+        android:padding="4dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:scaleType="fitCenter"
+        android:src="@drawable/valet" />
+
+    <!-- Кнопка "Свободные руки" (под Valet, верхний правый угол).
+         При включённом состоянии охраны вокруг неё бежит зелёная "змейка". -->
+    <ImageView
+        android:id="@+id/ivHand"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_below="@id/ivValet"
+        android:layout_alignParentEnd="true"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="16dp"
+        android:padding="4dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:scaleType="fitCenter"
+        android:src="@drawable/hand" />
+
+    <!-- Картинка автомобиля (пропорция 600x300 = 2:1, как в оригинале) -->
+    <ImageView
+        android:id="@+id/ivCar"
+        android:layout_width="300dp"
+        android:layout_height="150dp"
+        android:layout_below="@id/titleBar"
+        android:layout_above="@id/statusPanel"
+        android:layout_centerHorizontal="true"
+        android:layout_centerVertical="true"
+        android:scaleType="fitCenter"
+        android:src="@drawable/car" />
+
+    <!-- Панель статуса: поле состояния (Ohrana/Trevoga) + 4 иконки + полоса ctrl_top -->
+    <LinearLayout
+        android:id="@+id/statusPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/ctrlPanel"
+        android:orientation="vertical"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/tvStatusInfo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:gravity="center"
+            android:textColor="@color/text_white"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:text="Ohrana: --" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="7"
+            android:gravity="center">
+
+            <ImageView android:id="@+id/ivLock" android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1" android:src="@drawable/st_lock_sel" />
+            <ImageView android:id="@+id/ivBle" android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1" android:src="@drawable/st_ble" />
+            <ImageView android:id="@+id/ivDor" android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1" android:src="@drawable/st_dor" />
+            <ImageView android:id="@+id/ivEng" android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1" android:src="@drawable/st_eng" />
+            <ImageView android:id="@+id/ivBrake" android:layout_width="0dp" android:layout_height="27dp" android:layout_weight="1" android:scaleType="fitCenter" android:src="@drawable/car_indication_parking_blue_dark" />
+            <ImageView android:id="@+id/ivTrunkHood" android:layout_width="0dp" android:layout_height="27dp" android:layout_weight="1" android:scaleType="fitCenter" android:src="@drawable/car_control_icon_disarm_trunk_on_light" />
+            <ImageView android:id="@+id/ivShock" android:layout_width="0dp" android:layout_height="27dp" android:layout_weight="1" android:scaleType="fitCenter" android:src="@drawable/car_control_icon_shock_bpass_on_dark" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/ivCtrlTop"
+            android:layout_width="match_parent"
+            android:layout_height="22dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginStart="20dp"
+            android:layout_marginEnd="20dp"
+            android:scaleType="fitXY"
+            android:src="@drawable/ctrl_top" />
+    </LinearLayout>
+
+    <!-- Кнопки управления (компактная зона, прижата к низу экрана) -->
+    <RelativeLayout
+        android:id="@+id/ctrlPanel"
+        android:layout_width="match_parent"
+        android:layout_height="300dp"
+        android:layout_alignParentBottom="true">
+
+        <ImageButton
+            android:id="@+id/btnUnlock"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:layout_alignParentStart="true"
+            android:layout_alignParentTop="true"
+            android:layout_margin="20dp"
+            android:background="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ctrl_unlock_selector" />
+
+        <ImageButton
+            android:id="@+id/btnLock"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:layout_alignParentEnd="true"
+            android:layout_alignParentTop="true"
+            android:layout_margin="20dp"
+            android:background="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ctrl_lock_selector" />
+
+        <ImageButton
+            android:id="@+id/btnTrunk"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:layout_alignParentStart="true"
+            android:layout_alignParentBottom="true"
+            android:layout_margin="20dp"
+            android:background="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ctrl_trunk_selector" />
+
+        <ImageButton
+            android:id="@+id/btnHorn"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:layout_alignParentEnd="true"
+            android:layout_alignParentBottom="true"
+            android:layout_margin="20dp"
+            android:background="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ctrl_horn_selector" />
+
+        <!-- Динамическая кнопка двигателя (start/stop в зависимости от состояния) -->
+        <ImageButton
+            android:id="@+id/btnEngine"
+            android:layout_width="128dp"
+            android:layout_height="128dp"
+            android:layout_centerInParent="true"
+            android:background="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ctrl_start_selector" />
+    </RelativeLayout>
+
+</RelativeLayout>

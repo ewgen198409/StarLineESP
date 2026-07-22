@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">StarLineBle</string>
+    <string name="connect">Подключить</string>
+    <string name="disconnect">Отключить</string>
+    <string name="connecting">Подключение…</string>
+    <string name="connected">Подключено</string>
+    <string name="disconnected">Не подключено</string>
+    <string name="bonding">Сопряжение…</string>
+    <string name="scanning">Поиск устройства…</string>
+    <string name="lock">Закрыть</string>
+    <string name="unlock">Открыть</string>
+    <string name="start">Запуск</string>
+    <string name="stop">Стоп</string>
+    <string name="trunk">Багажник</string>
+    <string name="horn">Сигнал</string>
+    <string name="valet_on">Valet ВКЛ</string>
+    <string name="valet_off">Valet ВЫКЛ</string>
+    <string name="status">Состояние</string>
+    <string name="doors">Двери</string>
+    <string name="engine">Двигатель</string>
+    <string name="lock_state">Замки</string>
+    <string name="ohrana">Охрана</string>
+    <string name="valet">Valet</string>
+    <string name="trunk_state">Багажник</string>
+    <string name="voltage">Напряжение</string>
+    <string name="temp">Темп.</string>
+    <string name="on">ВКЛ</string>
+    <string name="off">ВЫКЛ</string>
+    <string name="open">Открыто</string>
+    <string name="closed">Закрыто</string>
+    <string name="ble_disabled">Включите Bluetooth</string>
+    <string name="perm_required">Необходимы разрешения Bluetooth</string>
+    <string name="arm">Arm</string>
+    <string name="disarm">Disarm</string>
+    <string name="panic">Panic!!!</string>
+    <string name="hand_free_title">Свободные руки</string>
+    <string name="hand_free_message">Выберите порог сигнала (дБ):</string>
+    <string name="hand_free_70">-70 дБ (очень близко)</string>
+    <string name="hand_free_80">-80 дБ (близко)</string>
+    <string name="hand_free_90">-90 дБ (средняя дистанция)</string>
+
+    <!-- PIN change dialog -->
+    <string name="change_pin_title">Смена PIN-кода BLE</string>
+    <string name="current_pin_label">Текущий PIN: %d</string>
+    <string name="new_pin_label">Новый PIN-код (6 цифр):</string>
+    <string name="new_pin_hint">Введите новый PIN</string>
+    <string name="cancel">Отмена</string>
+    <string name="save">Сохранить</string>
+    <string name="pin_saved">PIN-код успешно сохранён</string>
+    <string name="pin_invalid">Неверный PIN (должен быть 6 цифр)</string>
+    <string name="pin_save_error">Ошибка сохранения PIN</string>
+    <string name="pin_changed_message">Ваш новый пин-код Ble: %d</string>
+</resources>
