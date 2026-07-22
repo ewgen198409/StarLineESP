@@ -38,6 +38,7 @@
  */
 #include "SL_Data_ESP32.h"
 
+#include "sdkconfig.h"        // CONFIG_BLUEDROID_ENABLED / CONFIG_NIMBLE_ENABLED
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -45,7 +46,6 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include "ble_ota.h"
-#include <esp_gap_ble_api.h>  // esp_ble_gap_set_security_param (статический PIN)
 #include <Preferences.h>      // хранение PIN в NVS (переживает перепрошивку sketch, не erase flash)
 
 // --- пины под ESP32-C3 Super Mini и доп. каналы ----------------------------
@@ -202,6 +202,13 @@ class SecurityCallbacks : public BLESecurityCallbacks
     return true;
   }
 
+  // Сигнатура onAuthenticationComplete() у базового класса BLESecurityCallbacks
+  // отличается между backend'ами: Bluedroid передаёт esp_ble_auth_cmpl_t
+  // (с полями success/fail_reason), NimBLE - указатель ble_gap_conn_desc*
+  // (без fail_reason, есть только сам факт коннекта). ESP32-C3 в этой сборке
+  // собирается на NimBLE, поэтому оставлен вариант под оба backend'а через
+  // #if, чтобы override совпадал с реально скомпилированным базовым классом.
+#if defined(CONFIG_BLUEDROID_ENABLED)
   void onAuthenticationComplete(esp_ble_auth_cmpl_t auth_cmpl) override
   {
     if (auth_cmpl.success)
@@ -218,6 +225,17 @@ class SecurityCallbacks : public BLESecurityCallbacks
       #endif
     }
   }
+#elif defined(CONFIG_NIMBLE_ENABLED)
+  void onAuthenticationComplete(ble_gap_conn_desc *desc) override
+  {
+    #ifdef DEBUG
+    if (desc != nullptr)
+      Serial.println(F("BLE: pairing (bonding) successful"));
+    else
+      Serial.println(F("BLE: pairing failed"));
+    #endif
+  }
+#endif
 };
 
 // Обмен с BLE-callback'ами через флаги, чтобы не делать долгие delay()
@@ -497,7 +515,9 @@ void debug_readcommand()
       {
         currentBlePin = newPin;
         // apply immediately, no reboot needed — takes effect on next pairing
-        esp_ble_gap_set_security_param(ESP_BLE_SM_SET_STATIC_PASSKEY, &currentBlePin, sizeof(uint32_t));
+        // setPassKey() работает и с Bluedroid, и с NimBLE backend (в отличие
+        // от прямого esp_ble_gap_set_security_param, доступного только в Bluedroid)
+        BLESecurity::setPassKey(true, currentBlePin);
         Serial.print(F(" New PIN saved to NVS: "));
         Serial.println(currentBlePin);
         Serial.println(F(" (already-bonded devices don't need to re-pair; new PIN applies on next pairing)"));
@@ -576,9 +596,15 @@ void setup()
   // так как у ESP32 нет дисплея, используем заранее заданный статический
   // passkey (хранится в NVS, см. loadBlePin/saveBlePin) вместо реальной
   // генерации/отображения.
-  // (API Bluedroid: setEncryptionLevel — статический метод BLESecurity)
+  //
+  // ВАЖНО про ESP32-C3: setEncryptionLevel() и прямой вызов
+  // esp_ble_gap_set_security_param() существуют только в Bluedroid-варианте
+  // BLE-стека. Часть сборок под C3 (в т.ч. текущая — pioarduino) по
+  // умолчанию собирает BLE на NimBLE, где этих символов просто нет
+  // (отсюда ошибка "esp_gap_ble_api.h: No such file"). Поэтому вместо них
+  // используется BLESecurity::setPassKey() — единый метод, работающий
+  // одинаково и на Bluedroid, и на NimBLE.
   currentBlePin = loadBlePin(); // читаем сохранённый PIN (или инициализируем значением по умолчанию)
-  BLESecurity::setEncryptionLevel(ESP_BLE_SEC_ENCRYPT);
   BLESecurity::setAuthenticationMode(ESP_LE_AUTH_REQ_SC_BOND); // bonding + Secure Connection
   BLESecurity::setCapability(ESP_IO_CAP_OUT);                  // Display Only: требуется ввод PIN
   BLESecurity::setInitEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
@@ -586,7 +612,7 @@ void setup()
 
   // Задаём статический PIN-код (загруженный из NVS), который стек BLE
   // будет использовать как passkey при сопряжении.
-  esp_ble_gap_set_security_param(ESP_BLE_SM_SET_STATIC_PASSKEY, &currentBlePin, sizeof(uint32_t));
+  BLESecurity::setPassKey(true, currentBlePin); // true = статический (не случайный) passkey
 
   bleServer = BLEDevice::createServer();
   bleServer->setCallbacks(new ServerCallbacks());
@@ -788,7 +814,7 @@ void handleBlePinCommand()
     {
       currentBlePin = newPin;
       // Применяем немедленно: новый PIN будет использоваться при следующем сопряжении
-      esp_ble_gap_set_security_param(ESP_BLE_SM_SET_STATIC_PASSKEY, &currentBlePin, sizeof(uint32_t));
+      BLESecurity::setPassKey(true, currentBlePin);
       #ifdef DEBUG
       Serial.println(F("BLE: PIN saved successfully"));
       #endif
