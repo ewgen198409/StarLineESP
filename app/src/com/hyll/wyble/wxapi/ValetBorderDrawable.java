@@ -1,4 +1,4 @@
-package com.hyll.wyble.wxapi; 1
+package com.hyll.wyble.wxapi;
 
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
