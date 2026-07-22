@@ -7,3 +7,4 @@
 .vscode/ipch
 compile_commands.json
 StarLineBle/tools/jadx/lib/jadx-1.5.1-all.jar
+app/build
