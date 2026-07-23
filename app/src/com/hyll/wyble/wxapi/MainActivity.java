@@ -487,18 +487,22 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                if (!connected || !handFreeActive) return;
+                if (!connected) return;
 
+                // Обновление индикатора уровня сигнала - всегда работает
                 int level;
-                if (rssi >= -70) level = 4;
-                else if (rssi >= -80) level = 3;
-                else if (rssi >= -90) level = 2;
-                else if (rssi >= -100) level = 1;
+                if (rssi >= -60) level = 4;
+                else if (rssi >= -70) level = 3;
+                else if (rssi >= -80) level = 2;
+                else if (rssi >= -90) level = 1;
                 else level = 0;
                 bar1.setAlpha(level >= 1 ? 1.0f : 0.3f);
                 bar2.setAlpha(level >= 2 ? 1.0f : 0.3f);
                 bar3.setAlpha(level >= 3 ? 1.0f : 0.3f);
                 bar4.setAlpha(level >= 4 ? 1.0f : 0.3f);
+
+                // Логика режима "свободные руки" работает только когда режим активен
+                if (!handFreeActive) return;
 
                 boolean isAboveThreshold = rssi > handFreeRssiThreshold;
 
@@ -834,7 +838,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
         dialog.findViewById(R.id.btnRssi70).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                handFreeRssiThreshold = -70;
+                handFreeRssiThreshold = -60;
                 handFreeActive = true;
                 saveHandFreeSettings();
                 vibrate();
@@ -847,7 +851,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
         dialog.findViewById(R.id.btnRssi80).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                handFreeRssiThreshold = -80;
+                handFreeRssiThreshold = -70;
                 handFreeActive = true;
                 saveHandFreeSettings();
                 vibrate();
@@ -860,7 +864,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
         dialog.findViewById(R.id.btnRssi90).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                handFreeRssiThreshold = -90;
+                handFreeRssiThreshold = -80;
                 handFreeActive = true;
                 saveHandFreeSettings();
                 vibrate();

@@ -36,9 +36,9 @@
     <string name="panic">Panic!!!</string>
     <string name="hand_free_title">Свободные руки</string>
     <string name="hand_free_message">Выберите порог сигнала (дБ):</string>
-    <string name="hand_free_70">-70 дБ (очень близко)</string>
-    <string name="hand_free_80">-80 дБ (близко)</string>
-    <string name="hand_free_90">-90 дБ (средняя дистанция)</string>
+    <string name="hand_free_70">-60 дБ (очень близко)</string>
+    <string name="hand_free_80">-70 дБ (близко)</string>
+    <string name="hand_free_90">-80 дБ (средняя дистанция)</string>
 
     <!-- PIN change dialog -->
     <string name="change_pin_title">Смена PIN-кода BLE</string>
