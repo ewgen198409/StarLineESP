@@ -421,14 +421,14 @@ class BleOtaGui:
         try:
             # Clean first
             subprocess.run(
-                ["platformio", "run", "--target", "clean", "--environment", "esp32dev"],
+                ["platformio", "run", "--target", "clean", "--environment", "esp32-c3-supermini"],
                 cwd=Path(__file__).parent.parent,
                 capture_output=True,
                 timeout=60
             )
             # Build
             result = subprocess.run(
-                ["platformio", "run", "--environment", "esp32dev"],
+                ["platformio", "run", "--environment", "esp32-c3-supermini"],
                 cwd=Path(__file__).parent.parent,
                 capture_output=True,
                 text=True,
@@ -458,7 +458,7 @@ class BleOtaGui:
         self._set_busy(False)
         success, error = self._build_result
         if success:
-            firmware_bin = Path(__file__).parent.parent / ".pio" / "build" / "esp32dev" / "firmware.bin"
+            firmware_bin = Path(__file__).parent.parent / ".pio" / "build" / "esp32-c3-supermini" / "firmware.bin"
             if firmware_bin.exists():
                 self.firmware_path.set(str(firmware_bin))
             self.status.set("Build successful")

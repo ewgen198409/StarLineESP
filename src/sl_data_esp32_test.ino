@@ -62,8 +62,13 @@
 #define SLDATA_TX 5   // данные от ESP32 -> сигнализация (левый пин разъёма SL-Data)
                       // средний пин разъёма SL-Data - GND
 
-#define BIT_DURATION  200   // время одного бита в мкс (отправка команды на сигналку)
+#define BIT_DURATION  202   // время одного бита в мкс (отправка команды на сигналку)
 #define SL_BAUDRATE   5000  // скорость приёма от сигнализации
+
+
+// Смещение калибровки датчика (подобрать по факту сравнения с эталонным
+// термометром при комнатной температуре: offset = эталон - показание_датчика)
+#define TEMP_CALIBRATION_OFFSET -6.4f   // подобрать по факту сравнения с эталонным термометром
 
 //#define STOP_BIT   // раскомментировать, если нужен стоп-бит при отправке команды
 #define DEBUG        // раскомментировать для отладки по Serial, снять в финальной прошивке
@@ -131,7 +136,7 @@ uint32_t lastStatusWord = 0; // последнее валидное слово �
 #define ADC_PIN 3
 
 // --- делитель напряжения (R1=510k, R2=100k) ---
-const float R1 = 510000.0;
+const float R1 = 450000.0;
 const float R2 = 100000.0;
 const float maxInputVoltage = 20.0;
 const float maxADCVoltage = 3.3;
@@ -581,6 +586,9 @@ void setup()
 
   ds18b20.begin();
   tempReadDue = millis() + 1000; // первый замер через 1 сек после старта
+  ds18b20.setWaitForConversion(false); // никогда не блокировать поток
+  ds18b20.setResolution(12);           // явно фиксируем 750 мс на конверсию
+
   voltageReadDue = millis() + 2000; // первый замер напряжения через 2 сек
   analogReadResolution(12); // 12 бит (0-4095)
   analogSetAttenuation(ADC_11db); // измеряем до ~3.9V (нужен для делителя 20V)
@@ -666,24 +674,32 @@ void setup()
 #endif
 }
 
+
 void handleTemperature()
 {
   uint32_t now = millis();
   if (tempConversionStarted && now >= tempReadDue)
   {
-    ds18b20.requestTemperatures();
+    // requestTemperatures() тут больше НЕ вызывается — конверсия уже была
+    // запущена ниже 1 секунду назад и должна быть завершена, просто читаем
+    // готовый результат. Повторный вызов requestTemperatures() блокировал бы
+    // цикл на ~750 мс (время конверсии) и не нужен.
     float t = ds18b20.getTempCByIndex(0);
-    if (t != DEVICE_DISCONNECTED_C && t != lastTemperature)
+    if (t != DEVICE_DISCONNECTED_C)
     {
-      lastTemperature = t;
-      statusDirty = true;
+      t += TEMP_CALIBRATION_OFFSET; // компенсация самонагрева/офсета датчика
+      if (t != lastTemperature)
+      {
+        lastTemperature = t;
+        statusDirty = true;
+      }
     }
     tempConversionStarted = false;
     tempReadDue = now + 5000;
   }
   if (!tempConversionStarted && now >= tempReadDue)
   {
-    ds18b20.requestTemperatures();
+    ds18b20.requestTemperatures(); // неблокирующий запуск конверсии (setWaitForConversion(false) выставлен в setup())
     tempConversionStarted = true;
     tempReadDue = now + 1000;
   }
