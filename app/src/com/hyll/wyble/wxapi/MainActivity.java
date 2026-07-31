@@ -66,7 +66,6 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     private boolean handFreeSent = false;
     private boolean handFreeSentOn = false;
     private boolean wasAboveThreshold = false; // предыдущее состояние сигнала относительно порога
-    private boolean rssiInitialized = false; // флаг инициализации RSSI
     private int handFreeRssiThreshold = -80;
     private long thresholdCrossStartTime = 0; // время начала пересечения порога
     private boolean pendingThresholdCross = false; // ожидаем подтверждения пересечения
@@ -80,6 +79,9 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     private boolean pendingHandFreeAction = false;
     private long waitingForStateStartTime = 0;
     private static final long STATE_REQUEST_TIMEOUT_MS = 10000; // таймаут ожидания состояния
+    private static final long RECONNECT_FAST_ATTEMPTS = 3;      // первые 3 попытки без задержки
+    private static final long RECONNECT_MAX_DELAY_MS = 20000;   // максимальная задержка 30 сек
+    private int reconnectAttemptCount = 0;                      // счётчик попыток переподключения
     private MediaPlayer panicMp;
     private ValueAnimator valetBorderAnim, handBorderAnim;
     private ValetBorderDrawable valetBorderDrawable, handBorderDrawable;
@@ -88,7 +90,6 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     // --- Long-press на иконке Bluetooth для смены PIN ---
     private boolean pinDialogPending = false; // ожидаем получение PIN c устройства (GET)
     private boolean pinSetPending = false;    // ожидаем подтверждения установки PIN (SET)
-    private int pendingNewPinValue = 0;       // новый PIN, который отправили на ESP32
     private boolean longPressTriggered = false;
     private Runnable longPressRunnable = new Runnable() {
         @Override
@@ -257,7 +258,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
                 return true;
             }
         });
-        // Отложенный запуск long-press по нажатию и отпусканию
+        // Отложенный запуск long-press по нажатию и отпускании
         ivCarState.setOnTouchListener(new View.OnTouchListener() {
             private float downX, downY;
             @Override
@@ -422,6 +423,8 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
             @Override
             public void run() {
                 if (isConnected) {
+                    // Останавливаем сканирование — устройство найдено и подключено
+                    ble.stopScan();
                     if (bonded) {
                         tvDevName.setText(ble.getDeviceName());
                         tvConn.setText(R.string.connected);
@@ -449,8 +452,31 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     }
 
     private void autoReconnect() {
-        if (ble.isEnabled() && ensurePermissions()) {
-            tvConn.setText(R.string.scanning);
+        if (!ble.isEnabled() || !ensurePermissions()) return;
+
+        // Умная задержка переподключения:
+        // - Первые 3 попытки: мгновенно (телефон может быстро вернуться в зону покрытия)
+        // - После 3-й: экспоненциальная задержка (1с, 2с, 4с, 8с, 16с, 30с max)
+        long delayMs;
+        if (reconnectAttemptCount < RECONNECT_FAST_ATTEMPTS) {
+            delayMs = 0;
+        } else {
+            long exp = 1L << (reconnectAttemptCount - RECONNECT_FAST_ATTEMPTS);
+            delayMs = Math.min(exp * 1000, RECONNECT_MAX_DELAY_MS);
+        }
+        reconnectAttemptCount++;
+
+        tvConn.setText(R.string.scanning);
+        if (delayMs > 0) {
+            uiHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (!connected) {
+                        ble.startScan();
+                    }
+                }
+            }, delayMs);
+        } else {
             ble.startScan();
         }
     }
@@ -464,7 +490,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
                 return;
             }
         }
-        
+
         try {
             Intent serviceIntent = new Intent(this, BleForegroundService.class);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -542,6 +568,9 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
+                // При успешном получении состояния сбрасываем счётчик переподключений
+                reconnectAttemptCount = 0;
+
                 boolean prevOhrana = lastOhrana;
                 lastOhrana = s.ohrana;
                 if (!firstState && prevOhrana != s.ohrana) {
@@ -606,7 +635,6 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
                 if (locksOn != s.locks) {
                     handFreeSent = false;
                     handFreeSentOn = false;
-                    rssiInitialized = false; // сбрасываем инициализацию RSSI при изменении замков
                 }
                 locksOn = s.locks;
                 ivLock.setImageResource(s.locks ? R.drawable.st_lock_sel : R.drawable.st_unlock_sel);
@@ -818,7 +846,6 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
                     pinBytes[2] = (byte) ((newPinInt >> 16) & 0xFF);
                     pinBytes[3] = (byte) ((newPinInt >> 24) & 0xFF);
 
-                    pendingNewPinValue = newPinInt;
                     pinSetPending = true;
                     ble.sendCommand(BleManager.CMD_SET_PIN, pinBytes);
                     dialog.dismiss();

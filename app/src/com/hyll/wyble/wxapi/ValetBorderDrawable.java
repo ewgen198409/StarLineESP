@@ -17,20 +17,22 @@ public class ValetBorderDrawable extends Drawable {
     private final float dash;
     private final float gap;
     private final float width;
+    private final float[] intervals;
 
     public ValetBorderDrawable(int color, float width, float dash, float gap) {
         this.width = width;
         this.dash = dash;
         this.gap = gap;
+        this.intervals = new float[]{dash, gap};
         paint.setColor(color);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(width);
-        paint.setPathEffect(new DashPathEffect(new float[]{dash, gap}, 0f));
+        paint.setPathEffect(new DashPathEffect(intervals, 0f));
     }
 
     /** Установить смещение пунктира (анимируется снаружи). */
     public void setDashOffset(float offset) {
-        paint.setPathEffect(new DashPathEffect(new float[]{dash, gap}, offset));
+        paint.setPathEffect(new DashPathEffect(intervals, offset));
         invalidateSelf();
     }
 

@@ -300,6 +300,10 @@ public class BleManager {
             // Когда дескриптор включения уведомлений записан — шлём запрос состояния,
             // НО только если канал уже зашифрован (bonding завершён). Иначе ESP32
             // отклонит запись команды по незашифрованному каналу.
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.e("BleManager", "onDescriptorWrite: запись дескриптора завершилась ошибкой status=" + status);
+                return;
+            }
             if (CCC_DESCRIPTOR.equals(descriptor.getUuid())) {
                 BluetoothDevice dev = g.getDevice();
                 if (dev != null && dev.getBondState() == BluetoothDevice.BOND_BONDED) {

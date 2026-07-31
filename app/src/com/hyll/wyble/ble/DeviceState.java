@@ -79,17 +79,6 @@ public class DeviceState {
     return s;
 }
 
-    /** @deprecated используйте fromWord(byte[]) */
-    @Deprecated
-    public static DeviceState fromWord(int data) {
-        return fromWord(new byte[]{
-            (byte)(data & 0xFF),
-            (byte)((data >> 8) & 0xFF),
-            (byte)((data >> 16) & 0xFF),
-            (byte)((data >> 24) & 0xFF)
-        });
-    }
-
     private static boolean bit(int data, int b) {
         return (data & (1 << b)) != 0;
     }
