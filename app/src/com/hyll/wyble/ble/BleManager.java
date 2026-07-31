@@ -76,6 +76,7 @@ public class BleManager {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner scanner;
+    private boolean isScanning = false;
     private BluetoothGatt gatt;
     private BluetoothGattCharacteristic cmdChar;
     private BluetoothGattCharacteristic statusChar;
@@ -173,18 +174,33 @@ public class BleManager {
             Log.e("BleManager", "startScan: scanner == null (Bluetooth выключен или недоступен)");
             return;
         }
+        if (isScanning) {
+            Log.d("BleManager", "startScan: сканирование уже запущено");
+            return;
+        }
         Log.d("BleManager", "startScan: ищем устройство '" + DEVICE_NAME + "'");
         ScanSettings settings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
         // Сканируем без фильтра: на части устройств/Android фильтр по имени
         // (ScanFilter.setDeviceName) мешает обнаружению. Имя проверяем в onScanResult.
-        scanner.startScan(null, settings, scanCallback);
+        try {
+            scanner.startScan(null, settings, scanCallback);
+            isScanning = true;
+        } catch (Exception e) {
+            Log.e("BleManager", "Ошибка запуска сканирования: " + e.getMessage());
+            isScanning = false;
+        }
     }
 
     public void stopScan() {
-        if (scanner != null && bluetoothAdapter != null && bluetoothAdapter.isEnabled()) {
-            scanner.stopScan(scanCallback);
+        if (scanner != null && bluetoothAdapter != null && bluetoothAdapter.isEnabled() && isScanning) {
+            try {
+                scanner.stopScan(scanCallback);
+            } catch (Exception e) {
+                Log.e("BleManager", "Ошибка остановки сканирования: " + e.getMessage());
+            }
         }
+        isScanning = false;
     }
 
     private final ScanCallback scanCallback = new ScanCallback() {
@@ -198,6 +214,12 @@ public class BleManager {
                 stopScan();
                 connect(device);
             }
+        }
+
+        @Override
+        public void onScanFailed(int errorCode) {
+            Log.e("BleManager", "onScanFailed: код ошибки " + errorCode);
+            isScanning = false;
         }
     };
 
@@ -247,7 +269,8 @@ public class BleManager {
                 g.discoverServices();
                 g.readRemoteRssi(); // запрашиваем уровень сигнала
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                gatt = null;
+                g.close();
+                if (gatt == g) gatt = null;
                 if (!intentionalDisconnect) {
                     isBonded = false;
                     handler.post(new Runnable() {

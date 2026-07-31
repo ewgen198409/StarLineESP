@@ -79,8 +79,8 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     private boolean pendingHandFreeAction = false;
     private long waitingForStateStartTime = 0;
     private static final long STATE_REQUEST_TIMEOUT_MS = 10000; // таймаут ожидания состояния
-    private static final long RECONNECT_FAST_ATTEMPTS = 3;      // первые 3 попытки без задержки
-    private static final long RECONNECT_MAX_DELAY_MS = 20000;   // максимальная задержка 30 сек
+    private static final long RECONNECT_DELAY_MIN_MS = 2000;    // минимальная задержка между попытками
+    private static final long RECONNECT_MAX_DELAY_MS = 15000;   // максимальная задержка (15 сек для сигнализации)
     private int reconnectAttemptCount = 0;                      // счётчик попыток переподключения
     private MediaPlayer panicMp;
     private ValueAnimator valetBorderAnim, handBorderAnim;
@@ -454,31 +454,29 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     private void autoReconnect() {
         if (!ble.isEnabled() || !ensurePermissions()) return;
 
-        // Умная задержка переподключения:
-        // - Первые 3 попытки: мгновенно (телефон может быстро вернуться в зону покрытия)
-        // - После 3-й: экспоненциальная задержка (1с, 2с, 4с, 8с, 16с, 30с max)
+        // Для автосигнализации важно постоянно искать устройство, но не спамить startScan.
+        // Используем прогрессивную задержку, но с жестким минимумом 2с, чтобы не попасть под бан Android.
         long delayMs;
-        if (reconnectAttemptCount < RECONNECT_FAST_ATTEMPTS) {
-            delayMs = 0;
+        if (reconnectAttemptCount == 0) {
+            delayMs = RECONNECT_DELAY_MIN_MS;
         } else {
-            long exp = 1L << (reconnectAttemptCount - RECONNECT_FAST_ATTEMPTS);
+            // Экспоненциальное нарастание: 2с, 4с, 8с, далее ограничение 15с.
+            long exp = 1L << reconnectAttemptCount;
             delayMs = Math.min(exp * 1000, RECONNECT_MAX_DELAY_MS);
+            delayMs = Math.max(delayMs, RECONNECT_DELAY_MIN_MS);
         }
         reconnectAttemptCount++;
 
+        Log.d("MainActivity", "autoReconnect: попытка " + reconnectAttemptCount + ", задержка " + delayMs + "мс");
         tvConn.setText(R.string.scanning);
-        if (delayMs > 0) {
-            uiHandler.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    if (!connected) {
-                        ble.startScan();
-                    }
+        uiHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!connected) {
+                    ble.startScan();
                 }
-            }, delayMs);
-        } else {
-            ble.startScan();
-        }
+            }
+        }, delayMs);
     }
 
     private void startForegroundService() {
