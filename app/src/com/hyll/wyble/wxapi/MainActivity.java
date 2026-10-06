@@ -3,8 +3,10 @@ package com.hyll.wyble.wxapi;
 import com.hyll.wyble2.R;
 
 import android.Manifest;
+import android.bluetooth.BluetoothDevice;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -66,6 +68,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     private boolean handFreeSent = false;
     private boolean handFreeSentOn = false;
     private boolean wasAboveThreshold = false; // предыдущее состояние сигнала относительно порога
+    private boolean rssiInitialized = false; // флаг инициализации RSSI
     private int handFreeRssiThreshold = -80;
     private long thresholdCrossStartTime = 0; // время начала пересечения порога
     private boolean pendingThresholdCross = false; // ожидаем подтверждения пересечения
@@ -79,9 +82,6 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     private boolean pendingHandFreeAction = false;
     private long waitingForStateStartTime = 0;
     private static final long STATE_REQUEST_TIMEOUT_MS = 10000; // таймаут ожидания состояния
-    private static final long RECONNECT_DELAY_MIN_MS = 2000;    // минимальная задержка между попытками
-    private static final long RECONNECT_MAX_DELAY_MS = 15000;   // максимальная задержка (15 сек для сигнализации)
-    private int reconnectAttemptCount = 0;                      // счётчик попыток переподключения
     private MediaPlayer panicMp;
     private ValueAnimator valetBorderAnim, handBorderAnim;
     private ValetBorderDrawable valetBorderDrawable, handBorderDrawable;
@@ -90,6 +90,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     // --- Long-press на иконке Bluetooth для смены PIN ---
     private boolean pinDialogPending = false; // ожидаем получение PIN c устройства (GET)
     private boolean pinSetPending = false;    // ожидаем подтверждения установки PIN (SET)
+    private int pendingNewPinValue = 0;       // новый PIN, который отправили на ESP32
     private boolean longPressTriggered = false;
     private Runnable longPressRunnable = new Runnable() {
         @Override
@@ -417,14 +418,64 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     }
 
     @Override
+    public void onDevicesFound(final List<BluetoothDevice> devices) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing() || connected) return;
+
+                if (devices.isEmpty()) {
+                    tvConn.setText(R.string.disconnected);
+                    new AlertDialog.Builder(MainActivity.this, R.style.DarkAmoledDialog)
+                            .setTitle("Совместимые устройства не найдены")
+                            .setPositiveButton("Повторить поиск", new DialogInterface.OnClickListener() {
+                                @Override
+                                public void onClick(DialogInterface dialog, int which) {
+                                    tvConn.setText(R.string.scanning);
+                                    ble.startScan();
+                                }
+                            })
+                            .setNegativeButton("Закрыть", null)
+                            .show();
+                    return;
+                }
+
+                final CharSequence[] labels = new CharSequence[devices.size()];
+                for (int i = 0; i < devices.size(); i++) {
+                    BluetoothDevice device = devices.get(i);
+                    String address = device.getAddress();
+                    String addressSuffix = address.substring(Math.max(0, address.length() - 5));
+                    labels[i] = device.getName() + " (" + addressSuffix + ")";
+                }
+
+                new AlertDialog.Builder(MainActivity.this, R.style.DarkAmoledDialog)
+                        .setTitle("Выберите устройство")
+                        .setItems(labels, new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                ble.connect(devices.get(which));
+                            }
+                        })
+                        .setNeutralButton("Повторить поиск", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                tvConn.setText(R.string.scanning);
+                                ble.startScan();
+                            }
+                        })
+                        .setNegativeButton("Отмена", null)
+                        .show();
+            }
+        });
+    }
+
+    @Override
     public void onConnectionState(final boolean isConnected, final boolean bonded) {
         this.connected = isConnected;
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
                 if (isConnected) {
-                    // Останавливаем сканирование — устройство найдено и подключено
-                    ble.stopScan();
                     if (bonded) {
                         tvDevName.setText(ble.getDeviceName());
                         tvConn.setText(R.string.connected);
@@ -452,31 +503,10 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
     }
 
     private void autoReconnect() {
-        if (!ble.isEnabled() || !ensurePermissions()) return;
-
-        // Для автосигнализации важно постоянно искать устройство, но не спамить startScan.
-        // Используем прогрессивную задержку, но с жестким минимумом 2с, чтобы не попасть под бан Android.
-        long delayMs;
-        if (reconnectAttemptCount == 0) {
-            delayMs = RECONNECT_DELAY_MIN_MS;
-        } else {
-            // Экспоненциальное нарастание: 2с, 4с, 8с, далее ограничение 15с.
-            long exp = 1L << reconnectAttemptCount;
-            delayMs = Math.min(exp * 1000, RECONNECT_MAX_DELAY_MS);
-            delayMs = Math.max(delayMs, RECONNECT_DELAY_MIN_MS);
+        if (ble.isEnabled() && ensurePermissions()) {
+            tvConn.setText(R.string.scanning);
+            ble.startReconnectScan();
         }
-        reconnectAttemptCount++;
-
-        Log.d("MainActivity", "autoReconnect: попытка " + reconnectAttemptCount + ", задержка " + delayMs + "мс");
-        tvConn.setText(R.string.scanning);
-        uiHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (!connected) {
-                    ble.startScan();
-                }
-            }
-        }, delayMs);
     }
 
     private void startForegroundService() {
@@ -511,22 +541,18 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                if (!connected) return;
+                if (!connected || !handFreeActive) return;
 
-                // Обновление индикатора уровня сигнала - всегда работает
                 int level;
-                if (rssi >= -60) level = 4;
-                else if (rssi >= -70) level = 3;
-                else if (rssi >= -80) level = 2;
-                else if (rssi >= -90) level = 1;
+                if (rssi >= -70) level = 4;
+                else if (rssi >= -80) level = 3;
+                else if (rssi >= -90) level = 2;
+                else if (rssi >= -100) level = 1;
                 else level = 0;
                 bar1.setAlpha(level >= 1 ? 1.0f : 0.3f);
                 bar2.setAlpha(level >= 2 ? 1.0f : 0.3f);
                 bar3.setAlpha(level >= 3 ? 1.0f : 0.3f);
                 bar4.setAlpha(level >= 4 ? 1.0f : 0.3f);
-
-                // Логика режима "свободные руки" работает только когда режим активен
-                if (!handFreeActive) return;
 
                 boolean isAboveThreshold = rssi > handFreeRssiThreshold;
 
@@ -566,9 +592,6 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                // При успешном получении состояния сбрасываем счётчик переподключений
-                reconnectAttemptCount = 0;
-
                 boolean prevOhrana = lastOhrana;
                 lastOhrana = s.ohrana;
                 if (!firstState && prevOhrana != s.ohrana) {
@@ -633,6 +656,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
                 if (locksOn != s.locks) {
                     handFreeSent = false;
                     handFreeSentOn = false;
+                    rssiInitialized = false; // сбрасываем инициализацию RSSI при изменении замков
                 }
                 locksOn = s.locks;
                 ivLock.setImageResource(s.locks ? R.drawable.st_lock_sel : R.drawable.st_unlock_sel);
@@ -844,6 +868,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
                     pinBytes[2] = (byte) ((newPinInt >> 16) & 0xFF);
                     pinBytes[3] = (byte) ((newPinInt >> 24) & 0xFF);
 
+                    pendingNewPinValue = newPinInt;
                     pinSetPending = true;
                     ble.sendCommand(BleManager.CMD_SET_PIN, pinBytes);
                     dialog.dismiss();
@@ -863,7 +888,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
         dialog.findViewById(R.id.btnRssi70).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                handFreeRssiThreshold = -60;
+                handFreeRssiThreshold = -70;
                 handFreeActive = true;
                 saveHandFreeSettings();
                 vibrate();
@@ -876,7 +901,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
         dialog.findViewById(R.id.btnRssi80).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                handFreeRssiThreshold = -70;
+                handFreeRssiThreshold = -80;
                 handFreeActive = true;
                 saveHandFreeSettings();
                 vibrate();
@@ -889,7 +914,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
         dialog.findViewById(R.id.btnRssi90).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                handFreeRssiThreshold = -80;
+                handFreeRssiThreshold = -90;
                 handFreeActive = true;
                 saveHandFreeSettings();
                 vibrate();

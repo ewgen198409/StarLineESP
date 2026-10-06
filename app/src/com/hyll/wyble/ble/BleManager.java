@@ -17,10 +17,12 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,18 +30,18 @@ import java.util.UUID;
  * BLE-клиент для управления ESP32 (прошивка sl_data_esp32_test.ino).
  *
  * Устройство выступает GATT-сервером:
- *   Service : 4fafc201-1fb5-459e-8fcc-c5c9c331914b
- *   CMD     : beb5483e-36e1-4688-b7f5-ea07361b26a8  (WRITE, 1 байт команды)
- *   STATUS  : beb5483e-36e1-4688-b7f5-ea07361b26a9  (NOTIFY, 4 байта LE состояния)
- *   Имя     : StarLineBLE
+ *   CMD     : единственная WRITE-характеристика совместимого сервиса
+ *   STATUS  : единственная NOTIFY-характеристика того же сервиса
+ *   Имя     : StarLineBLE_*
  */
 @SuppressWarnings("deprecation")
 public class BleManager {
-    public static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
-    public static final UUID CMD_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
-    public static final UUID STATUS_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a9");
     private static final UUID CCC_DESCRIPTOR = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
-    public static final String DEVICE_NAME = "StarLineBLE";
+    private static final String DEVICE_NAME_PREFIX = "StarLineBLE";
+    private static final String PREFS_NAME = "settings";
+    private static final String PREF_SELECTED_DEVICE_ADDRESS = "selectedBleDeviceAddress";
+    private static final long SCAN_WINDOW_MS = 5000;
+    private static final long RECONNECT_RETRY_MS = 1500;
 
     // Команды (1 байт), см. прошивку ESP32
     public static final byte CMD_ZAPROS = (byte) 0x42;     // запрос состояния
@@ -64,6 +66,8 @@ public class BleManager {
     public interface BleCallback {
         void onConnectionState(boolean connected, boolean bonded);
 
+        void onDevicesFound(List<BluetoothDevice> devices);
+
         void onState(DeviceState state);
 
         void onRssi(int rssi);
@@ -76,16 +80,47 @@ public class BleManager {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner scanner;
-    private boolean isScanning = false;
     private BluetoothGatt gatt;
     private BluetoothGattCharacteristic cmdChar;
     private BluetoothGattCharacteristic statusChar;
     private boolean connecting = false;
-    private String deviceName = DEVICE_NAME; // имя подключённого устройства
+    private String deviceName = DEVICE_NAME_PREFIX;
     private BluetoothDevice bondedDevice;     // устройство, ожидающее bonding
     private boolean bondReceiverRegistered = false;
     private boolean isBonded = false;          // флаг завершённого сопряжения
     private boolean intentionalDisconnect = false; // флаг намеренного отключения для переподключения
+    private final List<BluetoothDevice> scanResults = new ArrayList<>();
+    private String selectedDeviceAddress;
+    private boolean reconnectOnly = false;
+    private boolean hasConnectedOnce = false;
+
+    private final Runnable reconnectScanRetry = new Runnable() {
+        @Override
+        public void run() {
+            if (reconnectOnly && selectedDeviceAddress != null) beginScan();
+        }
+    };
+
+    private final Runnable scanWindowFinished = new Runnable() {
+        @Override
+        public void run() {
+            stopScan();
+            if (reconnectOnly && selectedDeviceAddress != null) {
+                if (!hasConnectedOnce) {
+                    reconnectOnly = false;
+                    beginScan();
+                    return;
+                }
+                handler.postDelayed(reconnectScanRetry, RECONNECT_RETRY_MS);
+                return;
+            }
+            List<BluetoothDevice> results;
+            synchronized (scanResults) {
+                results = new ArrayList<>(scanResults);
+            }
+            callback.onDevicesFound(results);
+        }
+    };
 
     // Приёмник события сопряжения (bonding). ESP32 требует зашифрованный
     // канал, поэтому команды можно слать только ПОСЛЕ BOND_BONDED.
@@ -152,6 +187,8 @@ public class BleManager {
     public BleManager(Context context, BleCallback callback) {
         this.context = context;
         this.callback = callback;
+        selectedDeviceAddress = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(PREF_SELECTED_DEVICE_ADDRESS, null);
         BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
         if (bm != null) {
             bluetoothAdapter = bm.getAdapter();
@@ -169,38 +206,62 @@ public class BleManager {
         return deviceName;
     }
 
+    private void rememberSelectedDevice(String address) {
+        selectedDeviceAddress = address;
+        SharedPreferences.Editor editor = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit();
+        if (address == null) {
+            editor.remove(PREF_SELECTED_DEVICE_ADDRESS);
+        } else {
+            editor.putString(PREF_SELECTED_DEVICE_ADDRESS, address);
+        }
+        editor.apply();
+    }
+
     public void startScan() {
+        stopScan();
+        reconnectOnly = selectedDeviceAddress != null && !hasConnectedOnce;
+        beginScan();
+    }
+
+    public void startReconnectScan() {
+        if (!hasConnectedOnce) {
+            reconnectOnly = false;
+            stopScan();
+            beginScan();
+            return;
+        }
+        if (selectedDeviceAddress == null) {
+            startScan();
+            return;
+        }
+        reconnectOnly = true;
+        stopScan();
+        beginScan();
+    }
+
+    private void beginScan() {
         if (scanner == null) {
-            Log.e("BleManager", "startScan: scanner == null (Bluetooth выключен или недоступен)");
+            Log.e("BleManager", "beginScan: scanner == null (Bluetooth выключен или недоступен)");
             return;
         }
-        if (isScanning) {
-            Log.d("BleManager", "startScan: сканирование уже запущено");
-            return;
+        synchronized (scanResults) {
+            scanResults.clear();
         }
-        Log.d("BleManager", "startScan: ищем устройство '" + DEVICE_NAME + "'");
+        Log.d("BleManager", "startScan: ищем устройства с именем '" + DEVICE_NAME_PREFIX + "*'");
         ScanSettings settings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
         // Сканируем без фильтра: на части устройств/Android фильтр по имени
         // (ScanFilter.setDeviceName) мешает обнаружению. Имя проверяем в onScanResult.
-        try {
-            scanner.startScan(null, settings, scanCallback);
-            isScanning = true;
-        } catch (Exception e) {
-            Log.e("BleManager", "Ошибка запуска сканирования: " + e.getMessage());
-            isScanning = false;
-        }
+        scanner.startScan(null, settings, scanCallback);
+        handler.postDelayed(scanWindowFinished, SCAN_WINDOW_MS);
     }
 
     public void stopScan() {
-        if (scanner != null && bluetoothAdapter != null && bluetoothAdapter.isEnabled() && isScanning) {
-            try {
-                scanner.stopScan(scanCallback);
-            } catch (Exception e) {
-                Log.e("BleManager", "Ошибка остановки сканирования: " + e.getMessage());
-            }
+        handler.removeCallbacks(scanWindowFinished);
+        handler.removeCallbacks(reconnectScanRetry);
+        if (scanner != null && bluetoothAdapter != null && bluetoothAdapter.isEnabled()) {
+            scanner.stopScan(scanCallback);
         }
-        isScanning = false;
     }
 
     private final ScanCallback scanCallback = new ScanCallback() {
@@ -209,22 +270,33 @@ public class BleManager {
             BluetoothDevice device = result.getDevice();
             String name = device != null ? device.getName() : null;
             Log.d("BleManager", "scan: name=" + name + " addr=" + (device != null ? device.getAddress() : "?"));
-            if (device != null && DEVICE_NAME.equals(name)) {
-                Log.d("BleManager", "найдено целевое устройство, подключаемся");
-                stopScan();
-                connect(device);
+            if (device == null || name == null || !name.startsWith(DEVICE_NAME_PREFIX)) return;
+
+            if (reconnectOnly) {
+                if (selectedDeviceAddress.equals(device.getAddress())) {
+                    Log.d("BleManager", "найдено выбранное устройство, подключаемся");
+                    stopScan();
+                    connect(device);
+                }
+                return;
             }
+
+            synchronized (scanResults) {
+                for (BluetoothDevice found : scanResults) {
+                    if (found.getAddress().equals(device.getAddress())) return;
+                }
+                scanResults.add(device);
+            }
+            Log.d("BleManager", "найдено совместимое устройство: " + name);
         }
 
-        @Override
-        public void onScanFailed(int errorCode) {
-            Log.e("BleManager", "onScanFailed: код ошибки " + errorCode);
-            isScanning = false;
-        }
     };
 
     public void connect(BluetoothDevice device) {
         if (connecting || gatt != null) return;
+        reconnectOnly = false;
+        handler.removeCallbacks(reconnectScanRetry);
+        rememberSelectedDevice(device.getAddress());
         connecting = true;
 
         // Если устройство ещё не сопряжено (bonding) — инициируем сопряжение.
@@ -269,8 +341,7 @@ public class BleManager {
                 g.discoverServices();
                 g.readRemoteRssi(); // запрашиваем уровень сигнала
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                g.close();
-                if (gatt == g) gatt = null;
+                gatt = null;
                 if (!intentionalDisconnect) {
                     isBonded = false;
                     handler.post(new Runnable() {
@@ -290,21 +361,60 @@ public class BleManager {
         @Override
         public void onServicesDiscovered(BluetoothGatt g, int status) {
             Log.d("BleManager", "onServicesDiscovered status=" + status);
-            BluetoothGattService svc = g.getService(SERVICE_UUID);
-            if (svc == null) {
-                Log.e("BleManager", "сервис " + SERVICE_UUID + " не найден!");
+            BluetoothGattCharacteristic discoveredCommand = null;
+            BluetoothGattCharacteristic discoveredStatus = null;
+            boolean ambiguous = false;
+
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                for (BluetoothGattService service : g.getServices()) {
+                    BluetoothGattCharacteristic serviceCommand = null;
+                    BluetoothGattCharacteristic serviceStatus = null;
+                    int commandCount = 0;
+                    int statusCount = 0;
+
+                    for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
+                        int properties = characteristic.getProperties();
+                        if ((properties & (BluetoothGattCharacteristic.PROPERTY_WRITE
+                                | BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)) != 0) {
+                            serviceCommand = characteristic;
+                            commandCount++;
+                        }
+                        if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) {
+                            serviceStatus = characteristic;
+                            statusCount++;
+                        }
+                    }
+
+                    if (commandCount == 1 && statusCount == 1 && serviceCommand != serviceStatus
+                            && serviceStatus.getDescriptor(CCC_DESCRIPTOR) != null) {
+                        if (discoveredCommand != null) {
+                            ambiguous = true;
+                            break;
+                        }
+                        discoveredCommand = serviceCommand;
+                        discoveredStatus = serviceStatus;
+                    }
+                }
+            }
+
+            if (discoveredCommand == null || discoveredStatus == null || ambiguous) {
+                Log.e("BleManager", "не найден однозначный сервис с WRITE-командой и NOTIFY-статусом");
+                if (status == BluetoothGatt.GATT_SUCCESS) rememberSelectedDevice(null);
                 g.disconnect();
                 return;
             }
-            cmdChar = svc.getCharacteristic(CMD_UUID);
-            statusChar = svc.getCharacteristic(STATUS_UUID);
-            if (statusChar != null) {
-                g.setCharacteristicNotification(statusChar, true);
-                BluetoothGattDescriptor desc = statusChar.getDescriptor(CCC_DESCRIPTOR);
-                if (desc != null) {
-                    desc.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                    g.writeDescriptor(desc);
-                }
+
+            cmdChar = discoveredCommand;
+            statusChar = discoveredStatus;
+            hasConnectedOnce = true;
+            cmdChar.setWriteType((cmdChar.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0
+                    ? BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                    : BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
+            g.setCharacteristicNotification(statusChar, true);
+            BluetoothGattDescriptor desc = statusChar.getDescriptor(CCC_DESCRIPTOR);
+            if (desc != null) {
+                desc.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                g.writeDescriptor(desc);
             }
             handler.post(new Runnable() {
                 @Override
@@ -323,10 +433,6 @@ public class BleManager {
             // Когда дескриптор включения уведомлений записан — шлём запрос состояния,
             // НО только если канал уже зашифрован (bonding завершён). Иначе ESP32
             // отклонит запись команды по незашифрованному каналу.
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.e("BleManager", "onDescriptorWrite: запись дескриптора завершилась ошибкой status=" + status);
-                return;
-            }
             if (CCC_DESCRIPTOR.equals(descriptor.getUuid())) {
                 BluetoothDevice dev = g.getDevice();
                 if (dev != null && dev.getBondState() == BluetoothDevice.BOND_BONDED) {
@@ -363,7 +469,7 @@ public class BleManager {
         }
 
         private void handleChange(BluetoothGattCharacteristic c) {
-            if (!STATUS_UUID.equals(c.getUuid())) return;
+            if (statusChar == null || !statusChar.getUuid().equals(c.getUuid())) return;
             byte[] v = c.getValue();
             if (v == null || v.length < 4) return;
 
