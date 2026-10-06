@@ -68,16 +68,16 @@
 
 // Смещение калибровки датчика (подобрать по факту сравнения с эталонным
 // термометром при комнатной температуре: offset = эталон - показание_датчика)
-#define TEMP_CALIBRATION_OFFSET -6.4f   // подобрать по факту сравнения с эталонным термометром
+#define TEMP_CALIBRATION_OFFSET -2.4f   // подобрать по факту сравнения с эталонным термометром
 
 //#define STOP_BIT   // раскомментировать, если нужен стоп-бит при отправке команды
 #define DEBUG        // раскомментировать для отладки по Serial, снять в финальной прошивке
 
 // --- BLE идентификаторы (синхронизированы с Android-приложением) -----------
-#define SL_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define SL_CMD_CHAR_UUID       "beb5483e-36e1-4688-b7f5-ea07361b26a8"  // WRITE
-#define SL_STATUS_CHAR_UUID    "beb5483e-36e1-4688-b7f5-ea07361b26a9"  // NOTIFY
-#define SL_BLE_DEVICE_NAME     "StarLineBLE"
+#define SL_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914c"
+#define SL_CMD_CHAR_UUID       "beb5483e-36e1-4688-b7f5-ea07361b26a9"  // WRITE
+#define SL_STATUS_CHAR_UUID    "beb5483e-36e1-4688-b7f5-ea07361b26a0"  // NOTIFY
+#define SL_BLE_DEVICE_NAME     "StarLineBLE_01"
 
 // PIN-код по умолчанию для сопряжения (Passkey Entry), используется только
 // при первом запуске, если в NVS ещё ничего не сохранено. Ровно 6 цифр
@@ -123,6 +123,7 @@ bool Shocksensor  = 0;
 bool Valet        = 0; // режим Valet: бит 15, подтверждено экспериментально
 
 uint32_t lastStatusWord = 0; // последнее валидное слово для отправки по BLE
+bool hasValidStatus = false;
 
 // --- пины дополнительных каналов (багажник, сигнал) и датчиков -----------------
 #define TRUNK_PIN 6
@@ -135,8 +136,8 @@ uint32_t lastStatusWord = 0; // последнее валидное слово �
 // strapping-пины, поэтому под делитель напряжения взят GPIO3.
 #define ADC_PIN 3
 
-// --- делитель напряжения (R1=510k, R2=100k) ---
-const float R1 = 450000.0;
+// --- делитель напряжения (R1=430k, R2=100k) ---
+const float R1 = 410000.0;
 const float R2 = 100000.0;
 const float maxInputVoltage = 20.0;
 const float maxADCVoltage = 3.3;
@@ -361,7 +362,11 @@ void sl_data_read()
       byte CS = 0;
       CS = ~(answer[0] + answer[1] + answer[2] + 2);
       bool CSgood = (CS == answer[3]);
-      if (CSgood) { GoodResponse_received_from_starline(data); }
+      if (CSgood)
+      {
+        hasValidStatus = true;
+        GoodResponse_received_from_starline(data);
+      }
 #ifdef DEBUG
       printdata(data, CSgood);
 #endif
@@ -910,7 +915,7 @@ void loop()
   // Также отправляем статус с датчиками каждые 10 секунд независимо.
   static uint32_t lastStatusSend = 0;
   uint32_t now = millis();
-  if (deviceConnected && (statusDirty || (now - lastStatusSend >= 10000)))
+  if (deviceConnected && hasValidStatus && (statusDirty || (now - lastStatusSend >= 10000)))
   {
     statusDirty = false;
     lastStatusSend = now;
