@@ -38,7 +38,7 @@ echo "[2/5] aapt2 link -> base.apk ..."
   --min-sdk-version 26 \
   --target-sdk-version 34 \
   --version-code 1 \
-  --version-name "1.0" \
+  --version-name "2.0" \
   --no-version-vectors \
   -o "$OUT/base.apk" 2>&1 | tail -30
 
