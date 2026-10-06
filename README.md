@@ -1,63 +1,56 @@
-# StarLineBle — сборка из Java-исходников
+# StarLineBle — единый редактируемый проект
 
-Проект собирается из Java-исходников и ресурсов оригинального приложения.
+Исходный XAPK распакован и объединён в единый APK. Все split-модули
+(`config.xxhdpi`, `config.en`) влиты в основной проект, поэтому
+собирается один APK-файл.
 
-## Структура проекта
+## Структура
 
 ```
-StarLineESP/
-  app/
-    res/          # Ресурсы приложения (layout, drawable, strings и т.д.)
-    src/          # Java-исходники (редактируйте здесь)
-    AndroidManifest.xml  # Манифест приложения
-    build_app.sh  # Скрипт сборки
-  blekey.keystore  # Ключ для подписи APK
-  README.md       # Этот файл
+work/
+  base/          # ДЕКОМПИЛИРОВАННЫЙ проект (smali + res) — РЕДАКТИРУЙТЕ ЗДЕСЬ
+  jadx_src/      # Java-исходники (1232 файла) для анализа кода
+tools/
+  apktool.jar    # apktool 2.11.1 (сборка)
+  jadx/          # jadx 1.5.1 (GUI: tools/jadx/bin/jadx-gui)
+blekey.keystore  # собственный ключ подписи
+build.sh         # сборка + zipalign + подпись
+merged_release.apk # ПОДПИСАННЫЙ релизный APK (готов к установке)
 ```
 
 ## Как редактировать
 
-1. **Ресурсы** (layout, strings, drawable и т.д.) — правьте в `app/res/`
-2. **Java-код** — правьте в `app/src/com/hyll/wyble/`
-3. **Манифест** — `app/AndroidManifest.xml`
+1. **Ресурсы** (layout, strings, drawable и т.д.) — правьте в `work/base/res/`.
+2. **Смали-код** (Dalvik bytecode) — правьте в `work/base/smali*/`.
+   Для удобства изучайте Java-аналоги в `work/jadx_src/`
+   (открыть GUI: `tools/jadx/bin/jadx-gui work/jadx_src`).
+3. **Манифест** — `work/base/AndroidManifest.xml`.
 
-## Как собрать приложение
+## Как собрать релиз
 
 ```bash
-./app/build_app.sh
+./build.sh
 ```
 
-Пайплайн сборки:
-1. `aapt2 compile` — компиляция ресурсов
-2. `aapt2 link` — создание base.apk
-3. `javac` — компиляция Java-исходников
-4. `dx` — конвертация в classes.dex
-5. `apksigner` — подпись финального APK
+Пайплайн: apktool b → zipalign -p 4 → apksigner sign.
+Результат: `merged_release.apk`.
 
-Результат: `app/build/StarLineBle.apk`
+Параметры ключа (при смене — пересоздайте keystore):
+- alias: `blekey`
+- store/key password: `android123`
 
-## Параметры ключа подписи
-
-- Файл: `blekey.keystore`
-- Alias: `blekey`
-- Пароль хранилища: `android123`
-- Пароль ключа: `android123`
-
-## Проверка подписи
+## Проверка подписи и выравнивания
 
 ```bash
-apksigner verify --print-certs app/build/StarLineBle.apk
+apksigner verify --print-certs merged_release.apk
+zipalign -c -p 4 merged_release.apk   # должно вывести "Success"
 ```
 
 ## Установка на устройство
 
 ```bash
-adb install -r --no-incremental app/build/StarLineBle.apk
+adb install -r --no-incremental merged_release.apk
 ```
 
-Флаг `--no-incremental` обязателен, если устройство запрещает incremental install.
-
-## Примечания
-
-- Для сборки требуется Android SDK (aapt2, dx, apksigner)
-- Java 8+ требуется для компиляции исходников
+Флаг `--no-incremental` обязателен, если устройство запрещает
+incremental install (иначе ошибка "Incremental installation not allowed").

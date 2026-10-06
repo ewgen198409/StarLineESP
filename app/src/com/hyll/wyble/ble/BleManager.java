@@ -289,7 +289,6 @@ public class BleManager {
             }
             Log.d("BleManager", "найдено совместимое устройство: " + name);
         }
-
     };
 
     public void connect(BluetoothDevice device) {

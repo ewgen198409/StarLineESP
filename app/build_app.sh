@@ -1,7 +1,6 @@
 #!/bin/bash
-# Сборка нового приложения StarLineBle из Java-источников + ресурсов оригинала.
+# Сборка нового приложения StarLineBle из Java-исходников + ресурсов оригинала.
 # Пайплайн: aapt2 compile -> aapt2 link -> javac -> dx -> apksigner
-# Версия хранится в app/build_version.txt и автоматически повышается при каждой сборке.
 set -e
 cd "$(dirname "$0")/.."
 
@@ -24,34 +23,9 @@ OUT="app/build"
 GEN="$OUT/gen"
 OBJ="$OUT/obj"
 COMP="$OUT/compiled"
-# Файл версии хранится ВНЕ $OUT, чтобы rm -rf $OUT не удалял его
-VERSION_FILE="app/build_version.txt"
-
-# --- Авто-версионирование ---
-# Читаем текущую версию (или начинаем с 1), повышаем на 1.
-# versionCode = major*10000 + minor*100 + patch
-# versionName = "major.minor.patch"
-if [ -f "$VERSION_FILE" ]; then
-    read -r MAJOR MINOR PATCH < "$VERSION_FILE"
-else
-    MAJOR=1
-    MINOR=0
-    PATCH=0
-fi
-
-# Повышаем PATCH при каждой сборке
-PATCH=$((PATCH + 1))
-
-# Сохраняем новую версию
-echo "$MAJOR $MINOR $PATCH" > "$VERSION_FILE"
 
 rm -rf "$OUT"
 mkdir -p "$GEN" "$OBJ" "$COMP"
-
-VERSION_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
-VERSION_NAME="${MAJOR}.${MINOR}.${PATCH}"
-
-echo "Версия: $VERSION_NAME (code=$VERSION_CODE)"
 
 echo "[1/5] aapt2 compile resources ..."
 "$AAPT2" compile --dir "$APP/res" -o "$COMP/" 2>&1 | tail -20
@@ -63,8 +37,8 @@ echo "[2/5] aapt2 link -> base.apk ..."
   --java "$GEN" \
   --min-sdk-version 26 \
   --target-sdk-version 34 \
-  --version-code "$VERSION_CODE" \
-  --version-name "$VERSION_NAME" \
+  --version-code 1 \
+  --version-name "1.0" \
   --no-version-vectors \
   -o "$OUT/base.apk" 2>&1 | tail -30
 
@@ -77,18 +51,17 @@ echo "[4/5] dx -> classes.dex ..."
 "$DX" --dex --min-sdk-version=26 --output "$OUT/classes.dex" "$OBJ"
 
 echo "[5/5] package + sign ..."
-APK_FILE="$OUT/StarLineBle_${VERSION_NAME}.apk"
 cp "$OUT/base.apk" "$OUT/unsigned.apk"
 cd "$OUT"
 zip -q -r "unsigned.apk" "classes.dex"
 cd ../..
 "$APKSIGNER" sign --ks "$KEYSTORE" --ks-key-alias "$ALIAS" \
   --ks-pass "pass:$STORE_PASS" --key-pass "pass:$KEY_PASS" \
-  --out "$APK_FILE" "$OUT/unsigned.apk"
+  --out "$OUT/StarLineBle.apk" "$OUT/unsigned.apk"
 
-echo "Готово: $APK_FILE"
-"$APKSIGNER" verify --print-certs "$APK_FILE" 2>&1 | head -5
+echo "Готово: $OUT/StarLineBle.apk"
+"$APKSIGNER" verify --print-certs "$OUT/StarLineBle.apk" 2>&1 | head -5
 
 echo ""
 echo "Установка на устройство..."
-adb install -r --no-incremental "$APK_FILE" 2>&1 || echo "Устройство не найдено или adb недоступен"
+adb install -r --no-incremental "$OUT/StarLineBle.apk" 2>&1 || echo "Устройство не найдено или adb недоступен"

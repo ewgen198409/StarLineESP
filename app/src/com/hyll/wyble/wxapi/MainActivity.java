@@ -259,7 +259,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
                 return true;
             }
         });
-        // Отложенный запуск long-press по нажатию и отпускании
+        // Отложенный запуск long-press по нажатию и отпусканию
         ivCarState.setOnTouchListener(new View.OnTouchListener() {
             private float downX, downY;
             @Override
@@ -518,7 +518,7 @@ public class MainActivity extends Activity implements BleManager.BleCallback {
                 return;
             }
         }
-
+        
         try {
             Intent serviceIntent = new Intent(this, BleForegroundService.class);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
