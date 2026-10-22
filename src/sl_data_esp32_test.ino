@@ -77,7 +77,7 @@
 #define SL_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914c"
 #define SL_CMD_CHAR_UUID       "beb5483e-36e1-4688-b7f5-ea07361b26a9"  // WRITE
 #define SL_STATUS_CHAR_UUID    "beb5483e-36e1-4688-b7f5-ea07361b26a0"  // NOTIFY
-#define SL_BLE_DEVICE_NAME     "StarLineBLE_01"
+#define SL_BLE_DEVICE_NAME     "StarLineBLE_02"
 
 // PIN-код по умолчанию для сопряжения (Passkey Entry), используется только
 // при первом запуске, если в NVS ещё ничего не сохранено. Ровно 6 цифр
