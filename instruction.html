@@ -16,6 +16,14 @@
   th { background: #ddd; }
   .note { background: #f2f2f2; border: 1px solid #999; padding: 10px; margin: 12px 0; border-radius: 4px; }
   .warn { background: #fdf2f2; border: 1px solid #900; padding: 10px; margin: 12px 0; border-radius: 4px; }
+  .download { background: #f8f8f8; border: 1px solid #999; padding: 16px; margin: 16px 0; border-radius: 4px; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+  .download .download-text { flex: 1 1 200px; text-align: left; }
+  .download .download-text h3 { margin-top: 0; margin-bottom: 10px; text-align: left; }
+  .download .download-text p { margin: 6px 0; text-align: left; }
+  .download a { color: #000; text-decoration: underline; word-break: break-all; }
+  .download .qr { margin: 0; text-align: center; }
+  .download .qr img { width: 240px; height: 240px; }
+  .download .qr-caption { font-size: 9pt; color: #444; margin-top: 6px; text-align: center; }
   .step { margin: 8px 0; padding-left: 6px; border-left: 3px solid #000; }
   .key { font-family: monospace; background: #eee; padding: 1px 4px; border: 1px solid #999; border-radius: 3px; }
   @media print { body { font-size: 11pt; } .note, .warn { border-color: #666; } }
@@ -30,6 +38,18 @@
 
 <div class="note">
 <p><strong>Перед первым использованием:</strong> на каждом устройстве имя в прошивке задаётся индивидуально (суффикс <code>_01</code>, <code>_02</code> и т.д.). Это нужно, чтобы несколько сигнализаций, работающих рядом, не пересекались в списке поиска.</p>
+</div>
+
+<div class="download">
+  <div class="download-text">
+    <h3>Скачать приложение StarLineBle</h3>
+    <p>Установите приложение на смартфон перед первым подключением:</p>
+    <p><a href="https://polecloud.duckdns.org/public/api/resources/download?hash=pB5fiJU2Yf7wHWnpMa8zxQ">https://polecloud.duckdns.org/public/api/resources/download?hash=pB5fiJU2Yf7wHWnpMa8zxQ</a></p>
+  </div>
+  <div class="qr">
+    <img src="instruction_assets/qr_download.png" alt="QR-код для скачивания приложения" width="240" height="240">
+    <p class="qr-caption">Отсканируйте QR-код для быстрого перехода к скачиванию</p>
+  </div>
 </div>
 
 <h2>1. Подключение к устройству</h2>
