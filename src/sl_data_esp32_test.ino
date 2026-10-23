@@ -68,7 +68,7 @@
 
 // Смещение калибровки датчика (подобрать по факту сравнения с эталонным
 // термометром при комнатной температуре: offset = эталон - показание_датчика)
-#define TEMP_CALIBRATION_OFFSET -2.4f   // подобрать по факту сравнения с эталонным термометром
+#define TEMP_CALIBRATION_OFFSET -4.0f   // подобрать по факту сравнения с эталонным термометром
 
 //#define STOP_BIT   // раскомментировать, если нужен стоп-бит при отправке команды
 #define DEBUG        // раскомментировать для отладки по Serial, снять в финальной прошивке
@@ -77,7 +77,7 @@
 #define SL_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914c"
 #define SL_CMD_CHAR_UUID       "beb5483e-36e1-4688-b7f5-ea07361b26a9"  // WRITE
 #define SL_STATUS_CHAR_UUID    "beb5483e-36e1-4688-b7f5-ea07361b26a0"  // NOTIFY
-#define SL_BLE_DEVICE_NAME     "StarLineBLE_05"
+#define SL_BLE_DEVICE_NAME     "StarLineBLE_07"
 
 // PIN-код по умолчанию для сопряжения (Passkey Entry), используется только
 // при первом запуске, если в NVS ещё ничего не сохранено. Ровно 6 цифр
@@ -137,7 +137,7 @@ bool hasValidStatus = false;
 #define ADC_PIN 3
 
 // --- делитель напряжения (R1=430k, R2=100k) ---
-const float R1 = 410000.0;
+const float R1 = 430000.0;
 const float R2 = 100000.0;
 const float maxInputVoltage = 20.0;
 const float maxADCVoltage = 3.3;
@@ -148,6 +148,8 @@ DallasTemperature ds18b20(&oneWire);
 static float lastTemperature = -127.0f;
 static uint32_t tempReadDue = 0;
 static bool tempConversionStarted = false;
+static DeviceAddress ds18b20Address;   // кэшированный 64-битный адрес датчика
+static bool ds18b20Found = false;      // найден ли датчик на шине
 
 // --- напряжение (через делитель) ---
 static float lastVoltage = -1.0f;
@@ -590,9 +592,14 @@ void setup()
   sl_data.begin(SL_BAUDRATE);
 
   ds18b20.begin();
-  tempReadDue = millis() + 1000; // первый замер через 1 сек после старта
+  if (ds18b20.getDeviceCount() > 0)
+  {
+    ds18b20.getAddress(ds18b20Address, 0);
+    ds18b20Found = true;
+    ds18b20.setResolution(ds18b20Address, 9);  // 9 бит — конверсия ~94 мс, меньше саморазогрева
+  }
   ds18b20.setWaitForConversion(false); // никогда не блокировать поток
-  ds18b20.setResolution(12);           // явно фиксируем 750 мс на конверсию
+  tempReadDue = millis() + 1000;       // первый замер через 1 сек после старта
 
   voltageReadDue = millis() + 2000; // первый замер напряжения через 2 сек
   analogReadResolution(12); // 12 бит (0-4095)
@@ -663,6 +670,12 @@ void setup()
   Serial.println(F("StarLine SL-Data + BLE bridge ready!!!"));
   Serial.print(F("BLE pairing PIN: "));
   Serial.println(currentBlePin);
+  Serial.print(F("Temperature: "));
+  Serial.print(lastTemperature);
+  Serial.println(F(" C"));
+  Serial.print(F("Voltage: "));
+  Serial.print(lastVoltage);
+  Serial.println(F(" V"));
   Serial.println();
   Serial.println(F("Commands:"));
   Serial.println(F("  z - request status"));
@@ -683,30 +696,59 @@ void setup()
 void handleTemperature()
 {
   uint32_t now = millis();
+
+  // Если датчик ещё не найден — пробуем обнаружить его периодически
+  if (!ds18b20Found)
+  {
+    if (now >= tempReadDue)
+    {
+      ds18b20.begin();
+      if (ds18b20.getDeviceCount() > 0)
+      {
+        ds18b20.getAddress(ds18b20Address, 0);
+        ds18b20Found = true;
+        ds18b20.setResolution(ds18b20Address, 12);
+#ifdef DEBUG
+        Serial.println(F("DS18B20: sensor found"));
+#endif
+      }
+      tempReadDue = now + 60000; // повторная попытка через 1 мин
+    }
+    return;
+  }
+
+  // Фаза чтения: конверсия была запущена ранее, ждём её завершения
   if (tempConversionStarted && now >= tempReadDue)
   {
-    // requestTemperatures() тут больше НЕ вызывается — конверсия уже была
-    // запущена ниже 1 секунду назад и должна быть завершена, просто читаем
-    // готовый результат. Повторный вызов requestTemperatures() блокировал бы
-    // цикл на ~750 мс (время конверсии) и не нужен.
-    float t = ds18b20.getTempCByIndex(0);
+    // Читаем по кэшированному адресу — без нового поиска по шине
+    float t = ds18b20.getTempC(ds18b20Address);
     if (t != DEVICE_DISCONNECTED_C)
     {
       t += TEMP_CALIBRATION_OFFSET; // компенсация самонагрева/офсета датчика
-      if (t != lastTemperature)
+      if (abs(t - lastTemperature) > 0.1f) // порог, чтобы не шуметь при стабильной T
       {
         lastTemperature = t;
         statusDirty = true;
       }
     }
+    else
+    {
+      // Датчик пропал с шины
+      ds18b20Found = false;
+#ifdef DEBUG
+      Serial.println(F("DS18B20: sensor lost"));
+#endif
+    }
     tempConversionStarted = false;
-    tempReadDue = now + 5000;
+    tempReadDue = now + 60000; // следующий замер через 1 мин
   }
+
+  // Фаза запуска конверсии
   if (!tempConversionStarted && now >= tempReadDue)
   {
-    ds18b20.requestTemperatures(); // неблокирующий запуск конверсии (setWaitForConversion(false) выставлен в setup())
+    ds18b20.requestTemperaturesByAddress(ds18b20Address); // адресованный запуск
     tempConversionStarted = true;
-    tempReadDue = now + 1000;
+    tempReadDue = now + 200;    // > 94 мс (9 бит) с запасом
   }
 }
 
